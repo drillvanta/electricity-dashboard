@@ -30,21 +30,34 @@ selected_ba = st.selectbox("Select Balancing Authority", list(ba_dict.keys()), f
 
 # --------------------------
 # Helper: Fetch EIA data
+
 def fetch_eia_series(series_id, api_key):
-    url = f"https://api.eia.gov/v2/electricity/rto/region-data/data/?frequency=hourly&data[0]=value&facets[respondent][]= {series_id.split('.')[1]}&start=2023-07-01T00&end=2023-07-15T23&api_key={api_key}&offset=0"
+    url = f"https://api.eia.gov/series/?api_key={api_key}&series_id={series_id}"
     r = requests.get(url)
     if r.status_code != 200:
-        st.warning("EIA API call failed.")
+        st.warning(f"EIA API call failed for {series_id}")
         return pd.DataFrame()
+
     json_data = r.json()
-    records = json_data.get("response", {}).get("data", [])
-    df = pd.DataFrame.from_records(records)
-    df["datetime"] = pd.to_datetime(df["period"])
-    df = df.sort_values("datetime")
-    df = df.rename(columns={"value": series_id.split(".")[-2]})
-    return df[["datetime", series_id.split(".")[-2]]]
+    if "series" not in json_data:
+        st.warning(f"No data returned for {series_id}")
+        return pd.DataFrame()
+
+    try:
+        data = json_data["series"][0]["data"]
+        df = pd.DataFrame(data, columns=["datetime", "value"])
+        df["datetime"] = pd.to_datetime(df["datetime"], format="%Y%m%d%H", errors="coerce")
+        df = df.dropna(subset=["datetime"])
+        df = df.sort_values("datetime")
+        df = df.rename(columns={"value": series_id.split(".")[-2]})
+        return df
+    except Exception as e:
+        st.error(f"Parsing error: {e}")
+        return pd.DataFrame()
+
 
 # --------------------------
+
 # Load Data & Prophet Forecast
 api_key = st.secrets.get("EIA_API_KEY", "DEMO_KEY")  # Replace with your EIA API key
 
